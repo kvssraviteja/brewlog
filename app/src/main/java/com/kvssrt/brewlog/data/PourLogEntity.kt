@@ -16,23 +16,23 @@ import java.time.LocalDate
             onDelete = ForeignKey.CASCADE,
         ),
         ForeignKey(
-            entity = PourMethodEntity::class,
+            entity = BrewSegmentEntity::class,
             parentColumns = ["id"],
-            childColumns = ["methodId"],
+            childColumns = ["segmentId"],
             onDelete = ForeignKey.CASCADE,
         ),
     ],
     indices = [
         Index("coffeeBagId"),
-        Index("methodId"),
-        Index(value = ["coffeeBagId", "methodId", "brewedOn"]),
+        Index("segmentId"),
+        Index(value = ["coffeeBagId", "segmentId", "brewedOn"]),
     ],
 )
 data class PourLogEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val coffeeBagId: Long,
-    val methodId: Long,
+    val segmentId: Long,
     val brewedOn: LocalDate,
     val doseGrams: Double,
     val waterGrams: Double,

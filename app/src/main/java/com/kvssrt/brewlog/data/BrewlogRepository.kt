@@ -2,25 +2,36 @@ package com.kvssrt.brewlog.data
 
 import java.time.LocalDate
 
-val presetPourMethods = listOf(
+val brewStyles = listOf(
+    "Pour over",
+    "Espresso",
+    "Other",
+)
+
+val presetBrewers = listOf(
+    "B75",
     "V60",
     "Chemex",
     "Kalita Wave",
     "Origami",
-    "April brewer",
-    "Flat-bottom",
-    "Cone brewer",
+    "Espresso machine",
+    "Other",
 )
 
 data class CoffeeBagDraft(
+    val id: Long = 0,
     val name: String,
     val roaster: String,
+    val roastDate: String,
     val beanDetails: String,
+    val imagePath: String,
 )
 
 data class PourLogDraft(
+    val id: Long = 0,
     val coffeeBagId: Long,
-    val methodName: String,
+    val brewStyle: String,
+    val brewer: String,
     val brewedOn: LocalDate,
     val doseGrams: Double,
     val waterGrams: Double,
@@ -42,9 +53,13 @@ class BrewlogRepository(
 
     fun observeCoffeeBag(id: Long) = dao.observeCoffeeBag(id)
 
-    fun observeMethods(coffeeBagId: Long) = dao.observeMethods(coffeeBagId)
+    fun observeSegmentSummaries(coffeeBagId: Long) = dao.observeSegmentSummaries(coffeeBagId)
 
-    fun observeLogs(coffeeBagId: Long, methodId: Long) = dao.observeLogs(coffeeBagId, methodId)
+    fun observeAllSegments(coffeeBagId: Long) = dao.observeAllSegments(coffeeBagId)
+
+    fun observeLogs(coffeeBagId: Long, segmentId: Long) = dao.observeLogs(coffeeBagId, segmentId)
+
+    fun observeLog(id: Long) = dao.observeLog(id)
 
     suspend fun addCoffeeBag(draft: CoffeeBagDraft): Long {
         validateCoffeeBagDraft(draft)
@@ -53,7 +68,23 @@ class BrewlogRepository(
             CoffeeBagEntity(
                 name = draft.name.trim(),
                 roaster = draft.roaster.trim(),
+                roastDate = draft.roastDate.trim(),
                 beanDetails = draft.beanDetails.trim(),
+                imagePath = draft.imagePath.trim(),
+            ),
+        )
+    }
+
+    suspend fun updateCoffeeBag(existing: CoffeeBagEntity, draft: CoffeeBagDraft) {
+        validateCoffeeBagDraft(draft)
+
+        dao.updateCoffeeBag(
+            existing.copy(
+                name = draft.name.trim(),
+                roaster = draft.roaster.trim(),
+                roastDate = draft.roastDate.trim(),
+                beanDetails = draft.beanDetails.trim(),
+                imagePath = draft.imagePath.trim(),
             ),
         )
     }
@@ -61,11 +92,15 @@ class BrewlogRepository(
     suspend fun addPourLog(draft: PourLogDraft): Long {
         validatePourLogDraft(draft)
 
-        val method = getOrCreateMethod(draft.coffeeBagId, draft.methodName.trim())
+        val segment = getOrCreateSegment(
+            coffeeBagId = draft.coffeeBagId,
+            brewStyle = draft.brewStyle.trim(),
+            brewer = draft.brewer.trim(),
+        )
         return dao.insertLog(
             PourLogEntity(
                 coffeeBagId = draft.coffeeBagId,
-                methodId = method.id,
+                segmentId = segment.id,
                 brewedOn = draft.brewedOn,
                 doseGrams = draft.doseGrams,
                 waterGrams = draft.waterGrams,
@@ -82,25 +117,80 @@ class BrewlogRepository(
         )
     }
 
-    private suspend fun getOrCreateMethod(coffeeBagId: Long, name: String): PourMethodEntity {
-        dao.findMethod(coffeeBagId, name)?.let { return it }
+    suspend fun updatePourLog(existing: PourLogEntity, draft: PourLogDraft) {
+        validatePourLogDraft(draft)
 
-        val id = dao.insertMethod(PourMethodEntity(coffeeBagId = coffeeBagId, name = name))
+        val segment = getOrCreateSegment(
+            coffeeBagId = draft.coffeeBagId,
+            brewStyle = draft.brewStyle.trim(),
+            brewer = draft.brewer.trim(),
+        )
+        dao.updateLog(
+            existing.copy(
+                coffeeBagId = draft.coffeeBagId,
+                segmentId = segment.id,
+                brewedOn = draft.brewedOn,
+                doseGrams = draft.doseGrams,
+                waterGrams = draft.waterGrams,
+                equipmentDetails = draft.equipmentDetails.trim(),
+                grinderDetails = draft.grinderDetails.trim(),
+                grindSize = draft.grindSize.trim(),
+                recipe = draft.recipe.trim(),
+                waterDetails = draft.waterDetails.trim(),
+                tastingNotes = draft.tastingNotes.trim(),
+                nextImprovements = draft.nextImprovements.trim(),
+                rating = draft.rating,
+                brewTimeSeconds = draft.brewTimeSeconds,
+            ),
+        )
+    }
+
+    suspend fun deletePourLog(log: PourLogEntity) {
+        dao.deleteLog(log)
+    }
+
+    suspend fun deleteBrewSegment(segment: BrewSegmentEntity) {
+        dao.deleteSegment(segment)
+    }
+
+    private suspend fun getOrCreateSegment(
+        coffeeBagId: Long,
+        brewStyle: String,
+        brewer: String,
+    ): BrewSegmentEntity {
+        dao.findSegment(coffeeBagId, brewStyle, brewer)?.let { return it }
+
+        val id = dao.insertSegment(
+            BrewSegmentEntity(
+                coffeeBagId = coffeeBagId,
+                brewStyle = brewStyle,
+                brewer = brewer,
+            ),
+        )
         if (id > 0) {
-            return PourMethodEntity(id = id, coffeeBagId = coffeeBagId, name = name)
+            return BrewSegmentEntity(
+                id = id,
+                coffeeBagId = coffeeBagId,
+                brewStyle = brewStyle,
+                brewer = brewer,
+            )
         }
 
-        return dao.findMethod(coffeeBagId, name)
-            ?: error("Unable to create pour method.")
+        return dao.findSegment(coffeeBagId, brewStyle, brewer)
+            ?: error("Unable to create brew segment.")
     }
 }
 
 internal fun validateCoffeeBagDraft(draft: CoffeeBagDraft) {
     require(draft.name.trim().isNotEmpty()) { "Coffee name is required." }
+    require(draft.roastDate.isBlank() || runCatching { LocalDate.parse(draft.roastDate.trim()) }.isSuccess) {
+        "Roast date must use YYYY-MM-DD."
+    }
 }
 
 internal fun validatePourLogDraft(draft: PourLogDraft) {
-    require(draft.methodName.trim().isNotEmpty()) { "Pour method is required." }
+    require(draft.brewStyle.trim().isNotEmpty()) { "Brew style is required." }
+    require(draft.brewer.trim().isNotEmpty()) { "Brewer is required." }
     require(draft.doseGrams > 0) { "Coffee dose must be greater than 0." }
     require(draft.waterGrams > 0) { "Water amount must be greater than 0." }
 }

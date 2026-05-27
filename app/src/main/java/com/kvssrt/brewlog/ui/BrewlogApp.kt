@@ -1,23 +1,40 @@
 package com.kvssrt.brewlog.ui
 
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -31,18 +48,27 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.kvssrt.brewlog.data.BrewSegmentEntity
+import com.kvssrt.brewlog.data.BrewSegmentSummary
 import com.kvssrt.brewlog.data.BrewlogRepository
 import com.kvssrt.brewlog.data.CoffeeBagDraft
 import com.kvssrt.brewlog.data.CoffeeBagEntity
+import com.kvssrt.brewlog.data.CoffeeBagImageStorage
 import com.kvssrt.brewlog.data.CoffeeBagSummary
 import com.kvssrt.brewlog.data.PourLogDraft
 import com.kvssrt.brewlog.data.PourLogEntity
-import com.kvssrt.brewlog.data.PourMethodEntity
-import com.kvssrt.brewlog.data.presetPourMethods
+import com.kvssrt.brewlog.data.brewStyles
+import com.kvssrt.brewlog.data.presetBrewers
+import androidx.exifinterface.media.ExifInterface
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
@@ -50,60 +76,133 @@ import kotlinx.coroutines.launch
 
 private sealed interface BrewlogScreen {
     data object Home : BrewlogScreen
-    data object AddCoffeeBag : BrewlogScreen
+    data class CoffeeBagForm(val coffeeBagId: Long? = null) : BrewlogScreen
     data class CoffeeBagDetail(val coffeeBagId: Long) : BrewlogScreen
-    data class AddPourLog(val coffeeBagId: Long) : BrewlogScreen
-    data class MethodLogs(val coffeeBagId: Long, val methodId: Long, val methodName: String) : BrewlogScreen
+    data class PourLogForm(
+        val coffeeBagId: Long,
+        val logId: Long? = null,
+        val initialSegmentId: Long? = null,
+    ) : BrewlogScreen
+    data class SegmentLogs(val coffeeBagId: Long, val segmentId: Long, val segmentLabel: String) : BrewlogScreen
 }
 
 @Composable
 fun BrewlogApp(
     repository: BrewlogRepository,
+    imageStorage: CoffeeBagImageStorage,
 ) {
     var screen by remember { mutableStateOf<BrewlogScreen>(BrewlogScreen.Home) }
 
     when (val current = screen) {
         BrewlogScreen.Home -> HomeScreen(
             repository = repository,
-            onAddCoffeeBag = { screen = BrewlogScreen.AddCoffeeBag },
+            onAddCoffeeBag = { screen = BrewlogScreen.CoffeeBagForm() },
             onOpenCoffeeBag = { screen = BrewlogScreen.CoffeeBagDetail(it) },
         )
 
-        BrewlogScreen.AddCoffeeBag -> AddCoffeeBagScreen(
+        is BrewlogScreen.CoffeeBagForm -> CoffeeBagFormScreen(
             repository = repository,
-            onBack = { screen = BrewlogScreen.Home },
-            onCreated = { screen = BrewlogScreen.CoffeeBagDetail(it) },
+            imageStorage = imageStorage,
+            coffeeBagId = current.coffeeBagId,
+            onBack = {
+                screen = current.coffeeBagId?.let { BrewlogScreen.CoffeeBagDetail(it) } ?: BrewlogScreen.Home
+            },
+            onSaved = { screen = BrewlogScreen.CoffeeBagDetail(it) },
         )
 
         is BrewlogScreen.CoffeeBagDetail -> CoffeeBagDetailScreen(
             repository = repository,
             coffeeBagId = current.coffeeBagId,
             onBack = { screen = BrewlogScreen.Home },
-            onAddLog = { screen = BrewlogScreen.AddPourLog(current.coffeeBagId) },
-            onOpenMethod = { method ->
-                screen = BrewlogScreen.MethodLogs(
+            onEditBag = { screen = BrewlogScreen.CoffeeBagForm(current.coffeeBagId) },
+            onAddLog = { screen = BrewlogScreen.PourLogForm(current.coffeeBagId) },
+            onOpenSegment = { segment ->
+                screen = BrewlogScreen.SegmentLogs(
                     coffeeBagId = current.coffeeBagId,
-                    methodId = method.id,
-                    methodName = method.name,
+                    segmentId = segment.id,
+                    segmentLabel = segment.label,
                 )
             },
         )
 
-        is BrewlogScreen.AddPourLog -> AddPourLogScreen(
+        is BrewlogScreen.PourLogForm -> PourLogFormScreen(
             repository = repository,
             coffeeBagId = current.coffeeBagId,
+            logId = current.logId,
+            initialSegmentId = current.initialSegmentId,
             onBack = { screen = BrewlogScreen.CoffeeBagDetail(current.coffeeBagId) },
-            onCreated = { screen = BrewlogScreen.CoffeeBagDetail(current.coffeeBagId) },
+            onSaved = { screen = BrewlogScreen.CoffeeBagDetail(current.coffeeBagId) },
         )
 
-        is BrewlogScreen.MethodLogs -> MethodLogsScreen(
+        is BrewlogScreen.SegmentLogs -> SegmentLogsScreen(
             repository = repository,
             coffeeBagId = current.coffeeBagId,
-            methodId = current.methodId,
-            methodName = current.methodName,
+            segmentId = current.segmentId,
+            segmentLabel = current.segmentLabel,
             onBack = { screen = BrewlogScreen.CoffeeBagDetail(current.coffeeBagId) },
+            onAddLog = {
+                screen = BrewlogScreen.PourLogForm(
+                    coffeeBagId = current.coffeeBagId,
+                    initialSegmentId = current.segmentId,
+                )
+            },
+            onEditLog = { log ->
+                screen = BrewlogScreen.PourLogForm(
+                    coffeeBagId = current.coffeeBagId,
+                    logId = log.id,
+                    initialSegmentId = current.segmentId,
+                )
+            },
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppTopBar(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = title,
+                maxLines = 1,
+            )
+        },
+        navigationIcon = {
+            if (onBack != null) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = CircleShape,
+                        ),
+                ) {
+                    Text(
+                        text = "<",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        },
+        actions = {
+            if (actionText != null && onAction != null) {
+                TextButton(onClick = onAction) {
+                    Text(text = actionText)
+                }
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -116,21 +215,15 @@ private fun HomeScreen(
     val coffeeBags by repository.observeCoffeeBags().collectAsState(initial = emptyList())
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(text = "Brewlog") })
-        },
+        topBar = { AppTopBar(title = "Brewlog") },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddCoffeeBag) {
                 Text(text = "+")
             }
         },
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        BrewlogList(
+            modifier = Modifier.padding(innerPadding),
         ) {
             item {
                 Text(
@@ -142,7 +235,7 @@ private fun HomeScreen(
             if (coffeeBags.isEmpty()) {
                 item {
                     Text(
-                        text = "Add a coffee bag to start logging daily pour overs.",
+                        text = "Add a coffee bag to start logging brews.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -164,60 +257,129 @@ private fun CoffeeBagCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = coffeeBag.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+            CoffeeImage(
+                imagePath = coffeeBag.imagePath,
+                modifier = Modifier.size(72.dp),
             )
-            if (coffeeBag.roaster.isNotBlank()) {
-                Text(text = coffeeBag.roaster, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = coffeeBag.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (coffeeBag.roaster.isNotBlank()) {
+                    Text(text = coffeeBag.roaster, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (coffeeBag.roastDate.isNotBlank()) {
+                    Text(
+                        text = "Roasted ${coffeeBag.roastDate}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = buildCoffeeBagSummary(coffeeBag),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                text = buildCoffeeBagSummary(coffeeBag),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddCoffeeBagScreen(
+private fun CoffeeBagFormScreen(
     repository: BrewlogRepository,
+    imageStorage: CoffeeBagImageStorage,
+    coffeeBagId: Long?,
     onBack: () -> Unit,
-    onCreated: (Long) -> Unit,
+    onSaved: (Long) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var name by remember { mutableStateOf("") }
-    var roaster by remember { mutableStateOf("") }
-    var beanDetails by remember { mutableStateOf("") }
+    val existingBag by coffeeBagId
+        ?.let { repository.observeCoffeeBag(it).collectAsState(initial = null) }
+        ?: remember { mutableStateOf<CoffeeBagEntity?>(null) }
+
+    var initialized by remember(coffeeBagId) { mutableStateOf(false) }
+    var name by remember(coffeeBagId) { mutableStateOf("") }
+    var roaster by remember(coffeeBagId) { mutableStateOf("") }
+    var roastDate by remember(coffeeBagId) { mutableStateOf("") }
+    var beanDetails by remember(coffeeBagId) { mutableStateOf("") }
+    var imagePath by remember(coffeeBagId) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+
+    if (!initialized && (coffeeBagId == null || existingBag != null)) {
+        existingBag?.let {
+            name = it.name
+            roaster = it.roaster
+            roastDate = it.roastDate
+            beanDetails = it.beanDetails
+            imagePath = it.imagePath
+        }
+        initialized = true
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching { imageStorage.copyToAppStorage(uri) }
+                .onSuccess {
+                    imagePath = it
+                    error = null
+                }
+                .onFailure { error = it.message ?: "Could not save selected image." }
+        }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(text = "Add coffee bag") },
-                navigationIcon = { TextButton(onClick = onBack) { Text(text = "Back") } },
+            AppTopBar(
+                title = if (coffeeBagId == null) "Add coffee bag" else "Edit coffee bag",
+                onBack = onBack,
             )
         },
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        BrewlogList(
+            modifier = Modifier.padding(innerPadding),
         ) {
+            item {
+                CoffeeImage(
+                    imagePath = imagePath,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2.2f),
+                )
+            }
+            item {
+                Button(
+                    onClick = {
+                        imagePicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = if (imagePath.isBlank()) "Add bag image" else "Change bag image")
+                }
+            }
             item {
                 CoffeeTextField(value = name, onValueChange = { name = it }, label = "Coffee name")
             }
             item {
                 CoffeeTextField(value = roaster, onValueChange = { roaster = it }, label = "Roaster")
+            }
+            item {
+                CoffeeTextField(value = roastDate, onValueChange = { roastDate = it }, label = "Roast date YYYY-MM-DD")
             }
             item {
                 CoffeeTextField(
@@ -232,16 +394,24 @@ private fun AddCoffeeBagScreen(
                 Button(
                     onClick = {
                         scope.launch {
+                            val draft = CoffeeBagDraft(
+                                id = coffeeBagId ?: 0,
+                                name = name,
+                                roaster = roaster,
+                                roastDate = roastDate,
+                                beanDetails = beanDetails,
+                                imagePath = imagePath,
+                            )
                             runCatching {
-                                repository.addCoffeeBag(
-                                    CoffeeBagDraft(
-                                        name = name,
-                                        roaster = roaster,
-                                        beanDetails = beanDetails,
-                                    ),
-                                )
-                            }.onSuccess(onCreated)
-                                .onFailure { error = it.message ?: "Could not add coffee bag." }
+                                val existing = existingBag
+                                if (existing == null) {
+                                    repository.addCoffeeBag(draft)
+                                } else {
+                                    repository.updateCoffeeBag(existing, draft)
+                                    existing.id
+                                }
+                            }.onSuccess(onSaved)
+                                .onFailure { error = it.message ?: "Could not save coffee bag." }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -259,17 +429,20 @@ private fun CoffeeBagDetailScreen(
     repository: BrewlogRepository,
     coffeeBagId: Long,
     onBack: () -> Unit,
+    onEditBag: () -> Unit,
     onAddLog: () -> Unit,
-    onOpenMethod: (PourMethodEntity) -> Unit,
+    onOpenSegment: (BrewSegmentSummary) -> Unit,
 ) {
     val coffeeBag by repository.observeCoffeeBag(coffeeBagId).collectAsState(initial = null)
-    val methods by repository.observeMethods(coffeeBagId).collectAsState(initial = emptyList())
+    val segments by repository.observeSegmentSummaries(coffeeBagId).collectAsState(initial = emptyList())
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(text = coffeeBag?.name ?: "Coffee bag") },
-                navigationIcon = { TextButton(onClick = onBack) { Text(text = "Back") } },
+            AppTopBar(
+                title = coffeeBag?.name ?: "Coffee bag",
+                onBack = onBack,
+                actionText = "Edit",
+                onAction = onEditBag,
             )
         },
         floatingActionButton = {
@@ -278,45 +451,47 @@ private fun CoffeeBagDetailScreen(
             }
         },
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        BrewlogList(
+            modifier = Modifier.padding(innerPadding),
         ) {
             coffeeBag?.let {
                 item { CoffeeBagDetails(coffeeBag = it) }
             }
             item {
                 Text(
-                    text = "Pour methods",
+                    text = "Brew segments",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            if (methods.isEmpty()) {
+            if (segments.isEmpty()) {
                 item {
                     Text(
-                        text = "Add a log to create this bag's first pour method.",
+                        text = "Add a brew log to create the first segment for this bag.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            items(methods, key = { it.id }) { method ->
+            items(segments, key = { it.id }) { segment ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenMethod(method) },
+                        .clickable { onOpenSegment(segment) },
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Text(
-                            text = method.name,
+                            text = segment.label,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "View logs for this method",
+                            text = when (segment.logCount) {
+                                1L -> "1 log"
+                                else -> "${segment.logCount} logs"
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -331,8 +506,14 @@ private fun CoffeeBagDetails(coffeeBag: CoffeeBagEntity) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            CoffeeImage(
+                imagePath = coffeeBag.imagePath,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2.2f),
+            )
             Text(
                 text = coffeeBag.name,
                 style = MaterialTheme.typography.titleLarge,
@@ -340,6 +521,9 @@ private fun CoffeeBagDetails(coffeeBag: CoffeeBagEntity) {
             )
             if (coffeeBag.roaster.isNotBlank()) {
                 Text(text = coffeeBag.roaster, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (coffeeBag.roastDate.isNotBlank()) {
+                Text(text = "Roasted ${coffeeBag.roastDate}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (coffeeBag.beanDetails.isNotBlank()) {
                 Text(text = coffeeBag.beanDetails)
@@ -350,55 +534,89 @@ private fun CoffeeBagDetails(coffeeBag: CoffeeBagEntity) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddPourLogScreen(
+private fun PourLogFormScreen(
     repository: BrewlogRepository,
     coffeeBagId: Long,
+    logId: Long?,
+    initialSegmentId: Long?,
     onBack: () -> Unit,
-    onCreated: () -> Unit,
+    onSaved: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var brewedOn by remember { mutableStateOf(LocalDate.now().toString()) }
-    var methodName by remember { mutableStateOf(presetPourMethods.first()) }
-    var doseGrams by remember { mutableStateOf("") }
-    var waterGrams by remember { mutableStateOf("") }
-    var equipmentDetails by remember { mutableStateOf("") }
-    var grinderDetails by remember { mutableStateOf("") }
-    var grindSize by remember { mutableStateOf("") }
-    var recipe by remember { mutableStateOf("") }
-    var waterDetails by remember { mutableStateOf("") }
-    var tastingNotes by remember { mutableStateOf("") }
-    var nextImprovements by remember { mutableStateOf("") }
-    var rating by remember { mutableStateOf("") }
-    var brewTimeSeconds by remember { mutableStateOf("") }
+    val existingLog by logId
+        ?.let { repository.observeLog(it).collectAsState(initial = null) }
+        ?: remember { mutableStateOf<PourLogEntity?>(null) }
+    val segments by repository.observeAllSegments(coffeeBagId).collectAsState(initial = emptyList())
+    val selectedInitialSegment = remember(segments, initialSegmentId, existingLog) {
+        segments.firstOrNull { it.id == (existingLog?.segmentId ?: initialSegmentId) }
+    }
+
+    var initialized by remember(logId, selectedInitialSegment?.id) { mutableStateOf(false) }
+    var brewedOn by remember(logId) { mutableStateOf(LocalDate.now().toString()) }
+    var brewStyle by remember(logId) { mutableStateOf(brewStyles.first()) }
+    var brewer by remember(logId) { mutableStateOf("") }
+    var doseGrams by remember(logId) { mutableStateOf("") }
+    var waterGrams by remember(logId) { mutableStateOf("") }
+    var equipmentDetails by remember(logId) { mutableStateOf("") }
+    var grinderDetails by remember(logId) { mutableStateOf("") }
+    var grindSize by remember(logId) { mutableStateOf("") }
+    var recipe by remember(logId) { mutableStateOf("") }
+    var waterDetails by remember(logId) { mutableStateOf("") }
+    var tastingNotes by remember(logId) { mutableStateOf("") }
+    var nextImprovements by remember(logId) { mutableStateOf("") }
+    var rating by remember(logId) { mutableStateOf("") }
+    var brewTimeSeconds by remember(logId) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+
+    if (!initialized && (logId == null || existingLog != null)) {
+        selectedInitialSegment?.let {
+            brewStyle = it.brewStyle
+            brewer = it.brewer
+        }
+        existingLog?.let {
+            brewedOn = it.brewedOn.toString()
+            doseGrams = it.doseGrams.clean()
+            waterGrams = it.waterGrams.clean()
+            equipmentDetails = it.equipmentDetails
+            grinderDetails = it.grinderDetails
+            grindSize = it.grindSize
+            recipe = it.recipe
+            waterDetails = it.waterDetails
+            tastingNotes = it.tastingNotes
+            nextImprovements = it.nextImprovements
+            rating = it.rating?.toString().orEmpty()
+            brewTimeSeconds = it.brewTimeSeconds?.toString().orEmpty()
+        }
+        initialized = true
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(text = "Add pour log") },
-                navigationIcon = { TextButton(onClick = onBack) { Text(text = "Back") } },
+            AppTopBar(
+                title = if (logId == null) "Add brew log" else "Edit brew log",
+                onBack = onBack,
+                actionText = if (logId == null) null else "Delete",
+                onAction = if (logId == null) null else ({ showDeleteConfirmation = true }),
             )
         },
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        BrewlogList(
+            modifier = Modifier.padding(innerPadding),
         ) {
             item {
                 CoffeeTextField(value = brewedOn, onValueChange = { brewedOn = it }, label = "Date")
             }
             item {
-                Text(text = "Pour method", fontWeight = FontWeight.SemiBold)
+                Text(text = "Brew style", fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(8.dp))
-                PresetMethodChips(selected = methodName, onSelected = { methodName = it })
-                CoffeeTextField(
-                    value = methodName,
-                    onValueChange = { methodName = it },
-                    label = "Method name",
-                )
+                ChipRows(items = brewStyles, selected = brewStyle, onSelected = { brewStyle = it })
+            }
+            item {
+                Text(text = "Brewer", fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(8.dp))
+                ChipRows(items = presetBrewers, selected = brewer, onSelected = { brewer = it })
+                CoffeeTextField(value = brewer, onValueChange = { brewer = it }, label = "Brewer")
             }
             item {
                 CoffeeTextField(
@@ -485,8 +703,10 @@ private fun AddPourLogScreen(
                         runCatching {
                             buildPourLogDraft(
                                 coffeeBagId = coffeeBagId,
+                                logId = logId ?: 0,
                                 brewedOn = brewedOn,
-                                methodName = methodName,
+                                brewStyle = brewStyle,
+                                brewer = brewer,
                                 doseGrams = doseGrams,
                                 waterGrams = waterGrams,
                                 equipmentDetails = equipmentDetails,
@@ -501,75 +721,99 @@ private fun AddPourLogScreen(
                             )
                         }.onSuccess { draft ->
                             scope.launch {
-                                runCatching { repository.addPourLog(draft) }
-                                    .onSuccess { onCreated() }
-                                    .onFailure { error = it.message ?: "Could not add pour log." }
+                                runCatching {
+                                    val existing = existingLog
+                                    if (existing == null) {
+                                        repository.addPourLog(draft)
+                                    } else {
+                                        repository.updatePourLog(existing, draft)
+                                        existing.id
+                                    }
+                                }.onSuccess { onSaved() }
+                                    .onFailure { error = it.message ?: "Could not save brew log." }
                             }
                         }.onFailure {
-                            error = it.message ?: "Check the log details."
+                            error = it.message ?: "Check the brew log details."
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(text = "Save pour log")
+                    Text(text = "Save brew log")
                 }
             }
         }
     }
-}
 
-@Composable
-private fun PresetMethodChips(
-    selected: String,
-    onSelected: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        presetPourMethods.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { method ->
-                    AssistChip(
-                        onClick = { onSelected(method) },
-                        label = {
-                            Text(
-                                text = if (method == selected) "$method selected" else method,
-                            )
-                        },
-                    )
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text(text = "Delete brew log?") },
+            text = { Text(text = "This removes this log from the segment.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val log = existingLog
+                        if (log != null) {
+                            scope.launch {
+                                repository.deletePourLog(log)
+                                showDeleteConfirmation = false
+                                onSaved()
+                            }
+                        } else {
+                            showDeleteConfirmation = false
+                        }
+                    },
+                ) {
+                    Text(text = "Delete")
                 }
-            }
-        }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(text = "Cancel")
+                }
+            },
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MethodLogsScreen(
+private fun SegmentLogsScreen(
     repository: BrewlogRepository,
     coffeeBagId: Long,
-    methodId: Long,
-    methodName: String,
+    segmentId: Long,
+    segmentLabel: String,
     onBack: () -> Unit,
+    onAddLog: () -> Unit,
+    onEditLog: (PourLogEntity) -> Unit,
 ) {
-    val logs by repository.observeLogs(coffeeBagId, methodId).collectAsState(initial = emptyList())
+    val logs by repository.observeLogs(coffeeBagId, segmentId).collectAsState(initial = emptyList())
+    val segments by repository.observeAllSegments(coffeeBagId).collectAsState(initial = emptyList())
+    val segment = segments.firstOrNull { it.id == segmentId }
+    val scope = rememberCoroutineScope()
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(text = methodName) },
-                navigationIcon = { TextButton(onClick = onBack) { Text(text = "Back") } },
+            AppTopBar(
+                title = segmentLabel,
+                onBack = onBack,
+                actionText = "Delete",
+                onAction = { showDeleteConfirmation = true },
             )
         },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAddLog) {
+                Text(text = "+")
+            }
+        },
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        BrewlogList(
+            modifier = Modifier.padding(innerPadding),
         ) {
             item {
                 Text(
-                    text = "Pour logs",
+                    text = "Brew logs",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -580,15 +824,54 @@ private fun MethodLogsScreen(
                 }
             }
             items(logs, key = { it.id }) { log ->
-                PourLogCard(log = log)
+                PourLogCard(log = log, onClick = { onEditLog(log) })
             }
         }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text(text = "Delete brew segment?") },
+            text = { Text(text = "This deletes the segment and all logs inside it.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selectedSegment = segment
+                        if (selectedSegment != null) {
+                            scope.launch {
+                                repository.deleteBrewSegment(selectedSegment)
+                                showDeleteConfirmation = false
+                                onBack()
+                            }
+                        } else {
+                            showDeleteConfirmation = false
+                            onBack()
+                        }
+                    },
+                ) {
+                    Text(text = "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(text = "Cancel")
+                }
+            },
+        )
     }
 }
 
 @Composable
-private fun PourLogCard(log: PourLogEntity) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun PourLogCard(
+    log: PourLogEntity,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -622,6 +905,96 @@ private fun PourLogCard(log: PourLogEntity) {
 }
 
 @Composable
+private fun ChipRows(
+    items: List<String>,
+    selected: String,
+    onSelected: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { item ->
+                    val isSelected = item == selected
+                    AssistChip(
+                        onClick = { onSelected(item) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            labelColor = if (isSelected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        ),
+                        label = {
+                            Text(text = item)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoffeeImage(
+    imagePath: String,
+    modifier: Modifier = Modifier,
+) {
+    val image = remember(imagePath) {
+        imagePath.takeIf { it.isNotBlank() }?.let {
+            val bitmap = BitmapFactory.decodeFile(it) ?: return@let null
+            val rotation = runCatching { ExifInterface(it).rotationDegrees }.getOrDefault(0)
+            bitmap to rotation
+        }
+    }
+
+    if (image == null) {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "No image",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    } else {
+        val (bitmap, rotation) = image
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Coffee bag image",
+            modifier = modifier
+                .clip(RoundedCornerShape(8.dp))
+                .rotate(rotation.toFloat()),
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+@Composable
+private fun BrewlogList(
+    modifier: Modifier = Modifier,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+            .navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = content,
+    )
+}
+
+@Composable
 private fun CoffeeTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -650,8 +1023,10 @@ private fun buildCoffeeBagSummary(coffeeBag: CoffeeBagSummary): String {
 
 private fun buildPourLogDraft(
     coffeeBagId: Long,
+    logId: Long,
     brewedOn: String,
-    methodName: String,
+    brewStyle: String,
+    brewer: String,
     doseGrams: String,
     waterGrams: String,
     equipmentDetails: String,
@@ -664,8 +1039,10 @@ private fun buildPourLogDraft(
     rating: String,
     brewTimeSeconds: String,
 ) = PourLogDraft(
+    id = logId,
     coffeeBagId = coffeeBagId,
-    methodName = methodName,
+    brewStyle = brewStyle,
+    brewer = brewer,
     brewedOn = runCatching { LocalDate.parse(brewedOn.trim()) }
         .getOrElse { error("Date must use YYYY-MM-DD.") },
     doseGrams = doseGrams.toRequiredDouble("Coffee dose"),

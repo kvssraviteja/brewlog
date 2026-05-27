@@ -9,7 +9,7 @@ class BrewlogRepositoryTest {
     fun pourLogRatioUsesWaterDividedByDose() {
         val log = PourLogEntity(
             coffeeBagId = 1,
-            methodId = 1,
+            segmentId = 1,
             brewedOn = LocalDate.now(),
             doseGrams = 20.0,
             waterGrams = 320.0,
@@ -24,14 +24,47 @@ class BrewlogRepositoryTest {
             CoffeeBagDraft(
                 name = " ",
                 roaster = "",
+                roastDate = "",
                 beanDetails = "",
+                imagePath = "",
             ),
         )
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun pourLogValidationRequiresMethodName() {
-        validatePourLogDraft(validPourLogDraft(methodName = " "))
+    fun coffeeBagValidationRejectsInvalidRoastDate() {
+        validateCoffeeBagDraft(
+            CoffeeBagDraft(
+                name = "Test coffee",
+                roaster = "",
+                roastDate = "May 1",
+                beanDetails = "",
+                imagePath = "",
+            ),
+        )
+    }
+
+    @Test
+    fun coffeeBagValidationAllowsIsoRoastDate() {
+        validateCoffeeBagDraft(
+            CoffeeBagDraft(
+                name = "Test coffee",
+                roaster = "",
+                roastDate = "2026-05-01",
+                beanDetails = "",
+                imagePath = "",
+            ),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun pourLogValidationRequiresBrewStyle() {
+        validatePourLogDraft(validPourLogDraft(brewStyle = " "))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun pourLogValidationRequiresBrewer() {
+        validatePourLogDraft(validPourLogDraft(brewer = " "))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -45,12 +78,14 @@ class BrewlogRepositoryTest {
     }
 
     private fun validPourLogDraft(
-        methodName: String = "V60",
+        brewStyle: String = "Pour over",
+        brewer: String = "B75",
         doseGrams: Double = 20.0,
         waterGrams: Double = 320.0,
     ) = PourLogDraft(
         coffeeBagId = 1,
-        methodName = methodName,
+        brewStyle = brewStyle,
+        brewer = brewer,
         brewedOn = LocalDate.now(),
         doseGrams = doseGrams,
         waterGrams = waterGrams,

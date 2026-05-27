@@ -6,7 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
-    tableName = "pour_methods",
+    tableName = "brew_segments",
     foreignKeys = [
         ForeignKey(
             entity = CoffeeBagEntity::class,
@@ -17,13 +17,17 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index("coffeeBagId"),
-        Index(value = ["coffeeBagId", "name"], unique = true),
+        Index(value = ["coffeeBagId", "brewStyle", "brewer"], unique = true),
     ],
 )
-data class PourMethodEntity(
+data class BrewSegmentEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val coffeeBagId: Long,
-    val name: String,
+    val brewStyle: String,
+    val brewer: String,
     val createdAtMillis: Long = System.currentTimeMillis(),
-)
+) {
+    val label: String
+        get() = "$brewStyle - $brewer"
+}

@@ -9,6 +9,8 @@ data class CoffeeBagEntity(
     val id: Long = 0,
     val name: String,
     val roaster: String = "",
+    val roastDate: String = "",
     val beanDetails: String = "",
+    val imagePath: String = "",
     val createdAtMillis: Long = System.currentTimeMillis(),
 )

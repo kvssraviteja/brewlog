@@ -9,10 +9,10 @@ import androidx.room.TypeConverters
 @Database(
     entities = [
         CoffeeBagEntity::class,
-        PourMethodEntity::class,
+        BrewSegmentEntity::class,
         PourLogEntity::class,
     ],
-    version = 1,
+    version = 3,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -29,7 +29,9 @@ abstract class BrewlogDatabase : RoomDatabase() {
                     context.applicationContext,
                     BrewlogDatabase::class.java,
                     "brewlog.db",
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration(true)
+                    .build()
+                    .also { instance = it }
             }
     }
 }
